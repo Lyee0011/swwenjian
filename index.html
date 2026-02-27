@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>数据可视化 - 百分比图标生成器</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700;900&family=DM+Sans:wght@400;700;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0f;
+    color: #fff;
+    font-family: 'Noto Sans SC', 'DM Sans', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px;
+  }
+
+  h1 {
+    font-size: 14px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: #666;
+    margin-bottom: 40px;
+    font-weight: 400;
+  }
+
+  .main-container {
+    display: flex;
+    gap: 60px;
+    align-items: flex-start;
+    max-width: 1200px;
+    width: 100%;
+  }
+
+  /* === PREVIEW PANEL === */
+  .preview-panel {
+    flex: 1;
+    min-width: 600px;
+  }
+
+  .preview-card {
+    position: relative;
+    border-radius: 12px;
+    overflow: hidden;
+    aspect-ratio: 16/9;
+    background: #111;
+  }
+
+  .preview-bg {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, #0d0d0d 0%, #1a1a2e 100%);
+    z-index: 0;
+  }
+
+  .preview-bg-image {
+    position: absolute;
+    inset: 0;
+    background-size: cover;
+    background-position: center;
+    opacity: 0.15;
+    z-index: 1;
+  }
+
+  .preview-content {
+    position: relative;
+    z-index: 2;
+    padding: 48px 56px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .preview-title {
+    font-size: 32px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+  }
+
+  .preview-source {
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 36px;
+  }
+
+  .preview-body {
+    display: flex;
+    align-items: center;
+    gap: 48px;
+  }
+
+  .icon-grid {
+    display: grid;
+    grid-template-columns: repeat(10, 1fr);
+    gap: 6px;
+  }
+
+  .icon-cell {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    border-radius: 6px;
+    transition: all 0.3s ease;
+    position: relative;
+  }
+
+  .icon-cell.active {
+    animation: popIn 0.2s ease forwards;
+  }
+
+  .icon-cell.inactive {
+    opacity: 0.2;
+    filter: grayscale(1);
+  }
+
+  @keyframes popIn {
+    0% { transform: scale(0.5); opacity: 0; }
+    70% { transform: scale(1.1); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  .big-number {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 120px;
+    font-weight: 900;
+    line-height: 1;
+    color: #fff;
+    text-shadow: 0 0 60px rgba(255,255,255,0.1);
+  }
+
+  .big-number span {
+    font-size: 60px;
+    font-weight: 700;
+    vertical-align: super;
+    margin-left: 2px;
+  }
+
+  .preview-subtitle {
+    font-size: 18px;
+    font-weight: 700;
+    margin-top: 24px;
+    letter-spacing: 1px;
+  }
+
+  .preview-subtitle .highlight {
+    color: #e63946;
+  }
+
+  /* === CONTROLS PANEL === */
+  .controls-panel {
+    width: 340px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+
+  .control-group {
+    background: #141420;
+    border-radius: 12px;
+    padding: 24px;
+    border: 1px solid #222;
+  }
+
+  .control-group label {
+    display: block;
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #888;
+    margin-bottom: 12px;
+    font-weight: 700;
+  }
+
+  .control-group input[type="text"],
+  .control-group input[type="number"],
+  .control-group textarea {
+    width: 100%;
+    background: #0d0d14;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: #fff;
+    font-size: 15px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .control-group input:focus,
+  .control-group textarea:focus {
+    border-color: #e63946;
+  }
+
+  .control-group textarea {
+    resize: vertical;
+    min-height: 60px;
+  }
+
+  /* Slider */
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .slider-row input[type="range"] {
+    flex: 1;
+    -webkit-appearance: none;
+    height: 6px;
+    border-radius: 3px;
+    background: linear-gradient(to right, #e63946 0%, #e63946 var(--val), #333 var(--val), #333 100%);
+    outline: none;
+  }
+
+  .slider-row input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #e63946;
+    cursor: pointer;
+    box-shadow: 0 0 12px rgba(230,57,70,0.4);
+  }
+
+  .slider-value {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 28px;
+    font-weight: 900;
+    color: #e63946;
+    min-width: 60px;
+    text-align: right;
+  }
+
+  /* Icon Picker */
+  .icon-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .icon-option {
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    background: #0d0d14;
+    border: 2px solid #333;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .icon-option:hover {
+    border-color: #666;
+    transform: scale(1.1);
+  }
+
+  .icon-option.selected {
+    border-color: #e63946;
+    background: rgba(230,57,70,0.1);
+    box-shadow: 0 0 12px rgba(230,57,70,0.2);
+  }
+
+  .custom-icon-input {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .custom-icon-input input {
+    flex: 1;
+  }
+
+  .custom-icon-input button {
+    background: #e63946;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 700;
+    transition: background 0.2s;
+  }
+
+  .custom-icon-input button:hover {
+    background: #c1303c;
+  }
+
+  /* Color Picker Row */
+  .color-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .color-swatch {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    border: 2px solid #444;
+    cursor: pointer;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .color-swatch input[type="color"] {
+    position: absolute;
+    inset: -10px;
+    width: 60px;
+    height: 60px;
+    cursor: pointer;
+    border: none;
+    background: none;
+  }
+
+  .color-presets {
+    display: flex;
+    gap: 6px;
+  }
+
+  .color-preset {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.2s;
+  }
+
+  .color-preset:hover {
+    transform: scale(1.15);
+  }
+
+  .color-preset.selected {
+    border-color: #fff;
+    box-shadow: 0 0 8px rgba(255,255,255,0.3);
+  }
+
+  /* Grid Size */
+  .grid-options {
+    display: flex;
+    gap: 8px;
+  }
+
+  .grid-option {
+    flex: 1;
+    padding: 10px;
+    text-align: center;
+    background: #0d0d14;
+    border: 2px solid #333;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    color: #999;
+    transition: all 0.2s;
+  }
+
+  .grid-option:hover {
+    border-color: #666;
+  }
+
+  .grid-option.selected {
+    border-color: #e63946;
+    color: #fff;
+    background: rgba(230,57,70,0.08);
+  }
+
+  /* Export Button */
+  .export-btn {
+    width: 100%;
+    padding: 16px;
+    background: linear-gradient(135deg, #e63946, #c1303c);
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+  }
+
+  .export-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(230,57,70,0.3);
+  }
+
+  /* Inactive icon style */
+  .inactive-hex {
+    width: 24px;
+    height: 24px;
+    background: #444;
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+  }
+
+  /* Theme selector */
+  .theme-options {
+    display: flex;
+    gap: 8px;
+  }
+
+  .theme-option {
+    flex: 1;
+    padding: 10px 8px;
+    text-align: center;
+    background: #0d0d14;
+    border: 2px solid #333;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    color: #999;
+    transition: all 0.2s;
+  }
+
+  .theme-option:hover { border-color: #666; }
+  .theme-option.selected {
+    border-color: #e63946;
+    color: #fff;
+    background: rgba(230,57,70,0.08);
+  }
+</style>
+</head>
+<body>
+
+<h1>百分比可视化生成器</h1>
+
+<div class="main-container">
+  <!-- Preview -->
+  <div class="preview-panel">
+    <div class="preview-card" id="previewCard">
+      <div class="preview-bg"></div>
+      <div class="preview-bg-image" id="bgImage"></div>
+      <div class="preview-content">
+        <div class="preview-title" id="titleText">世界稀土精炼市场占比</div>
+        <div class="preview-source" id="sourceText">数据来源：Mineral Commodity Summaries 2025，US Geological Survey</div>
+        <div class="preview-body">
+          <div class="icon-grid" id="iconGrid"></div>
+          <div class="big-number" id="bigNumber">91<span>%</span></div>
+        </div>
+        <div class="preview-subtitle" id="subtitleText">约九成在<span class="highlight">中国</span>完成</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls-panel">
+
+    <div class="control-group">
+      <label>百分比</label>
+      <div class="slider-row">
+        <input type="range" id="percentSlider" min="0" max="100" value="91" style="--val: 91%">
+        <div class="slider-value" id="percentDisplay">91%</div>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label>标题</label>
+      <input type="text" id="titleInput" value="世界稀土精炼市场占比">
+      <label style="margin-top:16px">数据来源</label>
+      <input type="text" id="sourceInput" value="数据来源：Mineral Commodity Summaries 2025，US Geological Survey" style="font-size:12px">
+      <label style="margin-top:16px">底部说明</label>
+      <input type="text" id="subtitleInput" value="约九成在{中国}完成" placeholder="用 {文字} 标记高亮部分">
+    </div>
+
+    <div class="control-group">
+      <label>图标样式</label>
+      <div class="icon-picker" id="iconPicker">
+        <div class="icon-option selected" data-icon="🇨🇳">🇨🇳</div>
+        <div class="icon-option" data-icon="🇺🇸">🇺🇸</div>
+        <div class="icon-option" data-icon="🇯🇵">🇯🇵</div>
+        <div class="icon-option" data-icon="🇰🇷">🇰🇷</div>
+        <div class="icon-option" data-icon="🇩🇪">🇩🇪</div>
+        <div class="icon-option" data-icon="🇬🇧">🇬🇧</div>
+        <div class="icon-option" data-icon="●">●</div>
+        <div class="icon-option" data-icon="■">■</div>
+        <div class="icon-option" data-icon="★">★</div>
+        <div class="icon-option" data-icon="⬢">⬢</div>
+        <div class="icon-option" data-icon="👤">👤</div>
+        <div class="icon-option" data-icon="💰">💰</div>
+        <div class="icon-option" data-icon="🏭">🏭</div>
+        <div class="icon-option" data-icon="⚡">⚡</div>
+        <div class="icon-option" data-icon="🌍">🌍</div>
+        <div class="icon-option" data-icon="🚗">🚗</div>
+      </div>
+      <div class="custom-icon-input">
+        <input type="text" id="customIconInput" placeholder="输入自定义 emoji / 符号">
+        <button onclick="addCustomIcon()">添加</button>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label>高亮颜色</label>
+      <div class="color-row">
+        <div class="color-swatch">
+          <input type="color" id="accentColor" value="#e63946">
+        </div>
+        <div class="color-presets" id="colorPresets">
+          <div class="color-preset selected" data-color="#e63946" style="background:#e63946"></div>
+          <div class="color-preset" data-color="#f4a261" style="background:#f4a261"></div>
+          <div class="color-preset" data-color="#2a9d8f" style="background:#2a9d8f"></div>
+          <div class="color-preset" data-color="#457b9d" style="background:#457b9d"></div>
+          <div class="color-preset" data-color="#6c5ce7" style="background:#6c5ce7"></div>
+          <div class="color-preset" data-color="#00b894" style="background:#00b894"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label>网格布局</label>
+      <div class="grid-options">
+        <div class="grid-option" data-cols="5" data-rows="4">5×4<br><small>20格</small></div>
+        <div class="grid-option selected" data-cols="10" data-rows="5">10×5<br><small>50格</small></div>
+        <div class="grid-option" data-cols="10" data-rows="10">10×10<br><small>100格</small></div>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <label>背景图片 (可选)</label>
+      <input type="file" id="bgUpload" accept="image/*" style="font-size:13px; color:#888">
+    </div>
+
+    <button class="export-btn" onclick="exportImage()">导出 PNG 图片</button>
+
+  </div>
+</div>
+
+<script>
+  // State
+  let state = {
+    percent: 91,
+    icon: '🇨🇳',
+    cols: 10,
+    rows: 5,
+    accent: '#e63946',
+    title: '世界稀土精炼市场占比',
+    source: '数据来源：Mineral Commodity Summaries 2025，US Geological Survey',
+    subtitle: '约九成在{中国}完成',
+    bgImage: null
+  };
+
+  // Render icon grid
+  function renderGrid() {
+    const grid = document.getElementById('iconGrid');
+    const total = state.cols * state.rows;
+    const activeCount = Math.round((state.percent / 100) * total);
+
+    grid.style.gridTemplateColumns = `repeat(${state.cols}, 1fr)`;
+    grid.innerHTML = '';
+
+    for (let i = 0; i < total; i++) {
+      const cell = document.createElement('div');
+      cell.className = 'icon-cell';
+
+      if (i < activeCount) {
+        cell.classList.add('active');
+        cell.textContent = state.icon;
+        cell.style.animationDelay = `${i * 15}ms`;
+      } else {
+        cell.classList.add('inactive');
+        // Show a grey hexagon for inactive
+        const hex = document.createElement('div');
+        hex.className = 'inactive-hex';
+        hex.style.background = '#444';
+        cell.appendChild(hex);
+      }
+
+      grid.appendChild(cell);
+    }
+
+    // Update big number
+    document.getElementById('bigNumber').innerHTML = `${state.percent}<span>%</span>`;
+
+    // Update slider visual
+    const slider = document.getElementById('percentSlider');
+    slider.style.setProperty('--val', state.percent + '%');
+    document.getElementById('percentDisplay').textContent = state.percent + '%';
+  }
+
+  // Render subtitle with highlight
+  function renderSubtitle() {
+    const el = document.getElementById('subtitleText');
+    const text = state.subtitle.replace(/\{(.+?)\}/g, `<span class="highlight">$1</span>`);
+    el.innerHTML = text;
+    // Update highlight color
+    document.querySelectorAll('.highlight').forEach(h => h.style.color = state.accent);
+  }
+
+  // Update accent color across UI
+  function updateAccent(color) {
+    state.accent = color;
+    document.documentElement.style.setProperty('--accent', color);
+
+    // Update slider
+    const slider = document.getElementById('percentSlider');
+    const bg = `linear-gradient(to right, ${color} 0%, ${color} ${state.percent}%, #333 ${state.percent}%, #333 100%)`;
+    slider.style.background = bg;
+
+    // Update slider thumb via style injection
+    let thumbStyle = document.getElementById('thumbStyle');
+    if (!thumbStyle) {
+      thumbStyle = document.createElement('style');
+      thumbStyle.id = 'thumbStyle';
+      document.head.appendChild(thumbStyle);
+    }
+    thumbStyle.textContent = `
+      .slider-row input[type="range"]::-webkit-slider-thumb {
+        background: ${color} !important;
+        box-shadow: 0 0 12px ${color}66 !important;
+      }
+    `;
+
+    document.querySelector('.slider-value').style.color = color;
+    document.querySelector('.export-btn').style.background = `linear-gradient(135deg, ${color}, ${color}cc)`;
+
+    // Color presets
+    document.querySelectorAll('.color-preset').forEach(p => {
+      p.classList.toggle('selected', p.dataset.color === color);
+    });
+
+    document.getElementById('accentColor').value = color;
+    renderSubtitle();
+  }
+
+  // === Event Listeners ===
+
+  // Percent slider
+  document.getElementById('percentSlider').addEventListener('input', e => {
+    state.percent = parseInt(e.target.value);
+    renderGrid();
+    updateAccent(state.accent);
+  });
+
+  // Title
+  document.getElementById('titleInput').addEventListener('input', e => {
+    state.title = e.target.value;
+    document.getElementById('titleText').textContent = state.title;
+  });
+
+  // Source
+  document.getElementById('sourceInput').addEventListener('input', e => {
+    state.source = e.target.value;
+    document.getElementById('sourceText').textContent = state.source;
+  });
+
+  // Subtitle
+  document.getElementById('subtitleInput').addEventListener('input', e => {
+    state.subtitle = e.target.value;
+    renderSubtitle();
+  });
+
+  // Icon picker
+  document.getElementById('iconPicker').addEventListener('click', e => {
+    const option = e.target.closest('.icon-option');
+    if (!option) return;
+    document.querySelectorAll('.icon-option').forEach(o => o.classList.remove('selected'));
+    option.classList.add('selected');
+    state.icon = option.dataset.icon;
+    renderGrid();
+  });
+
+  // Custom icon
+  function addCustomIcon() {
+    const input = document.getElementById('customIconInput');
+    const val = input.value.trim();
+    if (!val) return;
+
+    const picker = document.getElementById('iconPicker');
+    const option = document.createElement('div');
+    option.className = 'icon-option';
+    option.dataset.icon = val;
+    option.textContent = val;
+    picker.appendChild(option);
+
+    // Select it
+    document.querySelectorAll('.icon-option').forEach(o => o.classList.remove('selected'));
+    option.classList.add('selected');
+    state.icon = val;
+    input.value = '';
+    renderGrid();
+  }
+
+  // Color
+  document.getElementById('accentColor').addEventListener('input', e => {
+    updateAccent(e.target.value);
+  });
+
+  document.getElementById('colorPresets').addEventListener('click', e => {
+    const preset = e.target.closest('.color-preset');
+    if (!preset) return;
+    updateAccent(preset.dataset.color);
+  });
+
+  // Grid options
+  document.querySelectorAll('.grid-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      document.querySelectorAll('.grid-option').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+      state.cols = parseInt(opt.dataset.cols);
+      state.rows = parseInt(opt.dataset.rows);
+      renderGrid();
+    });
+  });
+
+  // Background image
+  document.getElementById('bgUpload').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      document.getElementById('bgImage').style.backgroundImage = `url(${ev.target.result})`;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // Export
+  async function exportImage() {
+    const card = document.getElementById('previewCard');
+
+    // Use html2canvas approach via canvas
+    try {
+      // Dynamic import
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      document.head.appendChild(script);
+
+      script.onload = async () => {
+        const canvas = await html2canvas(card, {
+          backgroundColor: '#0a0a0f',
+          scale: 2,
+          useCORS: true
+        });
+        const link = document.createElement('a');
+        link.download = `数据可视化_${state.percent}%.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      };
+    } catch(err) {
+      alert('导出失败，请截图保存');
+    }
+  }
+
+  // Custom icon input enter key
+  document.getElementById('customIconInput').addEventListener('keypress', e => {
+    if (e.key === 'Enter') addCustomIcon();
+  });
+
+  // Init
+  renderGrid();
+  renderSubtitle();
+  updateAccent(state.accent);
+</script>
+
+</body>
+</html>
