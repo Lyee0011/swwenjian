@@ -20,6 +20,8 @@ DaVinci Resolve 字幕搜索定位插件
   然后在 DaVinci Resolve 中: 工作区 → 脚本 → davinci_subtitle_search
 """
 
+import os
+import platform
 import re
 import sys
 import tkinter as tk
@@ -96,78 +98,133 @@ def search_subtitles(entries: list[dict], keyword: str) -> list[dict]:
 # ==================== DaVinci Resolve API ====================
 
 
+def _setup_resolve_env():
+    """
+    设置 DaVinci Resolve 脚本 API 所需的环境变量和模块路径。
+    DaVinciResolveScript 模块需要 RESOLVE_SCRIPT_LIB 环境变量
+    指向 fusionscript.so / fusionscript.dll 才能正常连接。
+    """
+    system = platform.system()
+
+    if system == "Darwin":  # macOS
+        script_api = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
+        script_lib = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
+        modules_paths = [
+            f"{script_api}/Modules",
+        ]
+    elif system == "Windows":
+        script_api = os.path.join(
+            os.environ.get("PROGRAMDATA", "C:/ProgramData"),
+            "Blackmagic Design", "DaVinci Resolve", "Support", "Developer", "Scripting",
+        )
+        script_lib = os.path.join(
+            os.environ.get("PROGRAMFILES", "C:/Program Files"),
+            "Blackmagic Design", "DaVinci Resolve", "fusionscript.dll",
+        )
+        modules_paths = [
+            os.path.join(script_api, "Modules"),
+        ]
+    else:  # Linux
+        script_api = "/opt/resolve/Developer/Scripting"
+        script_lib = "/opt/resolve/libs/Fusion/fusionscript.so"
+        modules_paths = [
+            f"{script_api}/Modules",
+            "/opt/resolve/libs/Fusion/Modules",
+        ]
+
+    # 设置环境变量（仅当未设置时）
+    if not os.environ.get("RESOLVE_SCRIPT_API"):
+        os.environ["RESOLVE_SCRIPT_API"] = script_api
+    if not os.environ.get("RESOLVE_SCRIPT_LIB"):
+        os.environ["RESOLVE_SCRIPT_LIB"] = script_lib
+
+    # 添加模块搜索路径
+    for p in modules_paths:
+        if p not in sys.path:
+            sys.path.insert(0, p)
+
+    # 同时确保 PYTHONPATH 包含 Modules 路径
+    existing = os.environ.get("PYTHONPATH", "")
+    for p in modules_paths:
+        if p not in existing:
+            os.environ["PYTHONPATH"] = p + os.pathsep + existing
+
+
 def get_resolve():
     """获取 DaVinci Resolve 脚本 API 对象。"""
-    try:
-        import DaVinciResolveScript as dvr
-        return dvr.scriptapp("Resolve")
-    except ImportError:
-        pass
+    # 先设置环境和路径
+    _setup_resolve_env()
 
-    # 尝试通过 fusionscript 模块
-    try:
-        import fusionscript as dvr
-        return dvr.scriptapp("Resolve")
-    except ImportError:
-        pass
+    # 尝试导入并连接
+    resolve = None
+    for module_name in ("DaVinciResolveScript", "fusionscript"):
+        try:
+            mod = __import__(module_name)
+            resolve = mod.scriptapp("Resolve")
+            if resolve is not None:
+                return resolve
+        except (ImportError, AttributeError):
+            continue
 
-    # 尝试添加常见路径
-    resolve_paths = [
-        # macOS
-        "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules",
-        # Linux
-        "/opt/resolve/Developer/Scripting/Modules",
-        "/opt/resolve/libs/Fusion/Modules",
-        # Windows (常见路径)
-        "C:/ProgramData/Blackmagic Design/DaVinci Resolve/Support/Developer/Scripting/Modules",
-    ]
-    for p in resolve_paths:
-        if Path(p).exists() and p not in sys.path:
-            sys.path.append(p)
-
-    try:
-        import DaVinciResolveScript as dvr
-        return dvr.scriptapp("Resolve")
-    except (ImportError, AttributeError):
-        return None
+    # 如果 scriptapp 返回 None，说明 Resolve 未运行或脚本权限未开启
+    if resolve is None:
+        print(
+            "[字幕搜索] 无法连接 DaVinci Resolve。请检查:\n"
+            "  1. DaVinci Resolve 是否已启动\n"
+            "  2. 偏好设置 → 通用 → 外部脚本使用 → 设为「本地」\n"
+            "  3. 环境变量 RESOLVE_SCRIPT_LIB 是否指向 fusionscript.so/.dll"
+        )
+    return resolve
 
 
-def jump_to_time(resolve, seconds: float) -> bool:
-    """在 DaVinci Resolve 时间线上跳转到指定时间（秒）。"""
+def seconds_to_timecode(seconds: float, fps: int) -> str:
+    """将秒数转为 DaVinci Resolve 时间码 HH:MM:SS:FF。"""
+    total_frames = round(seconds * fps)
+    ff = total_frames % fps
+    total_secs = total_frames // fps
+    ss = total_secs % 60
+    mm = (total_secs // 60) % 60
+    hh = total_secs // 3600
+    return f"{hh:02d}:{mm:02d}:{ss:02d}:{ff:02d}"
+
+
+def jump_to_time(resolve, seconds: float) -> str:
+    """
+    在 DaVinci Resolve 时间线上跳转到指定时间（秒）。
+    返回错误信息字符串，成功时返回空字符串。
+    """
     if not resolve:
-        return False
+        return "Resolve 对象为空"
 
     try:
-        project = resolve.GetProjectManager().GetCurrentProject()
+        pm = resolve.GetProjectManager()
+        if not pm:
+            return "无法获取项目管理器"
+
+        project = pm.GetCurrentProject()
         if not project:
-            return False
+            return "没有打开的项目"
 
         timeline = project.GetCurrentTimeline()
         if not timeline:
-            return False
+            return "没有活动的时间线"
 
-        fps = float(timeline.GetSetting("timelineFrameRate"))
-        # 将秒数转为帧号（从时间线起始帧开始）
-        start_frame = int(timeline.GetStartFrame())
-        target_frame = start_frame + int(seconds * fps)
-        timeline.SetCurrentTimecode(
-            frame_to_timecode(target_frame, fps)
-        )
-        return True
+        # 获取时间线帧率
+        fps_str = timeline.GetSetting("timelineFrameRate")
+        if not fps_str:
+            fps = 24  # 默认回退
+        else:
+            fps = round(float(fps_str))
+
+        timecode = seconds_to_timecode(seconds, fps)
+        result = timeline.SetCurrentTimecode(timecode)
+
+        if not result:
+            return f"SetCurrentTimecode({timecode}) 返回失败"
+
+        return ""  # 成功
     except Exception as e:
-        print(f"跳转失败: {e}")
-        return False
-
-
-def frame_to_timecode(frame: int, fps: float) -> str:
-    """将帧号转为时间码字符串 HH:MM:SS:FF。"""
-    fps_int = round(fps)
-    total_seconds = frame // fps_int
-    ff = frame % fps_int
-    hh = total_seconds // 3600
-    mm = (total_seconds % 3600) // 60
-    ss = total_seconds % 60
-    return f"{hh:02d}:{mm:02d}:{ss:02d}:{ff:02d}"
+        return f"异常: {e}"
 
 
 # ==================== GUI ====================
@@ -216,15 +273,18 @@ class SubtitleSearchApp:
         title_frame.pack(fill=tk.X, pady=(0, 10))
         ttk.Label(title_frame, text="字幕搜索定位", style="Title.TLabel").pack(side=tk.LEFT)
 
+        # 重连按钮
+        self.reconnect_btn = ttk.Button(title_frame, text="重连", width=5,
+                                         command=self._reconnect, style="Dark.TButton")
+        self.reconnect_btn.pack(side=tk.RIGHT, padx=(8, 0))
+
         # 连接状态
-        status_text = "已连接 DaVinci Resolve" if self.resolve else "未连接 (仅搜索模式)"
-        status_color = "#00ff88" if self.resolve else "#ff6b6b"
-        self.status_dot = tk.Label(title_frame, text="●", fg=status_color,
-                                    bg="#1a1a2e", font=("", 10))
+        self.status_dot = tk.Label(title_frame, text="●", bg="#1a1a2e", font=("", 10))
         self.status_dot.pack(side=tk.RIGHT, padx=(0, 5))
-        self.status_label = tk.Label(title_frame, text=status_text, fg=status_color,
-                                      bg="#1a1a2e", font=("Microsoft YaHei UI", 9))
+        self.status_label = tk.Label(title_frame, bg="#1a1a2e",
+                                      font=("Microsoft YaHei UI", 9))
         self.status_label.pack(side=tk.RIGHT)
+        self._update_status(self.resolve is not None)
 
         # 文件选择
         file_frame = ttk.Frame(main_frame, style="Dark.TFrame")
@@ -312,6 +372,28 @@ class SubtitleSearchApp:
         self.root.bind("<Control-f>", lambda e: search_entry.focus_set())
         self.root.bind("<Escape>", lambda e: self.root.destroy())
 
+    def _update_status(self, connected: bool):
+        """更新连接状态显示。"""
+        if connected:
+            self.status_dot.config(fg="#00ff88")
+            self.status_label.config(text="已连接 DaVinci Resolve", fg="#00ff88")
+        else:
+            self.status_dot.config(fg="#ff6b6b")
+            self.status_label.config(text="未连接 (仅搜索模式)", fg="#ff6b6b")
+
+    def _reconnect(self):
+        """手动重新连接 DaVinci Resolve。"""
+        self.resolve = get_resolve()
+        connected = self.resolve is not None
+        self._update_status(connected)
+        if connected:
+            self.bottom_label.config(text="已成功连接 DaVinci Resolve", fg="#00ff88")
+        else:
+            self.bottom_label.config(
+                text="连接失败。请确认: 1) Resolve 已启动 2) 偏好设置→通用→外部脚本使用→本地",
+                fg="#ff6b6b",
+            )
+
     def _open_file(self):
         """打开 SRT 文件。"""
         filepath = filedialog.askopenfilename(
@@ -368,18 +450,29 @@ class SubtitleSearchApp:
         seconds = float(tags[0]) if tags else 0
 
         if self.resolve:
-            success = jump_to_time(self.resolve, seconds)
-            if success:
+            err = jump_to_time(self.resolve, seconds)
+            if not err:
                 self.bottom_label.config(
                     text=f"已跳转到 {time_str} → {text[:30]}...",
                     fg="#00ff88",
                 )
             else:
                 self.bottom_label.config(
-                    text="跳转失败，请确认 DaVinci Resolve 已打开时间线",
+                    text=f"跳转失败: {err}",
                     fg="#ff6b6b",
                 )
         else:
+            # 尝试重新连接
+            self.resolve = get_resolve()
+            if self.resolve:
+                self._update_status(True)
+                err = jump_to_time(self.resolve, seconds)
+                if not err:
+                    self.bottom_label.config(
+                        text=f"已重连并跳转到 {time_str} → {text[:30]}...",
+                        fg="#00ff88",
+                    )
+                    return
             self.bottom_label.config(
                 text=f"[未连接] {time_str} → {text[:40]}",
                 fg="#ffaa00",
